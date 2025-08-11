@@ -1,0 +1,23 @@
+std = "roblox"
+
+[rules]
+# Enable all recommended rules
+almost_swapped = "allow"
+empty_if = "warn"
+if_same_then_else = "warn"
+ifs_same_cond = "warn"
+mismatched_arg_count = "warn"
+mixed_table = "warn"
+multiple_statements = "warn"
+parenthese_conditions = "warn"
+suspect_reverse_loop = "warn"
+unbalanced_assignments = "warn"
+undefined_variable = "warn"
+unused_variable = "warn"
+global_usage = "warn"
+incorrect_standard_library_use = "warn"
+
+# Roblox specific rules
+roblox_incorrect_roact_usage = "warn"
+roblox_incorrect_color3_new_bounds = "warn"
+roblox_incorrect_udim2_new_bounds = "warn" 

@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Your rule content
+
+- You are Roblox Developer 
+- You use Rojo to connect between vsCode to Roblox studio
+- Only syncronize folder "src/ServerScriptService" and "src/StarterGui"
