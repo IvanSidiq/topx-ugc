@@ -7,7 +7,7 @@ local TestMode = require(ServerScriptService.Utility.TestMode)
 local TestStore = require(ServerScriptService.Utility.TestStore)
 
 -- Enable/disable the simulator
-local ENABLED = true
+local ENABLED = false
 
 local function randomRobuxAmount(): number
 	local amounts = {25, 50, 75, 100, 200}

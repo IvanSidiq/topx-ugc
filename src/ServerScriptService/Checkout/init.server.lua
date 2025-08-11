@@ -50,6 +50,11 @@ local function simulateGrant(player: Player, robuxSpent: number)
 			end)
 		end
 	end
+
+	local purchases = stats:FindFirstChild("Purchases")
+	if purchases then
+		purchases.Value += 1
+	end
 end
 
 local function onPurchaseEvent(player: Player, itemId: number, itemType: Enum.MarketplaceProductType)
@@ -82,6 +87,8 @@ local function onPurchaseEvent(player: Player, itemId: number, itemType: Enum.Ma
 	else
 		MarketplaceService:PromptPurchase(player, itemId)
 	end
+
+	-- On live prompt, we increment purchases in the finished signal in UGCPurchaseHandler.
 end
 
 local function onBulkPurchaseEvent(player: Player, bulkPurchaseItems: { Types.BulkItem })

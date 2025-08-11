@@ -3,13 +3,18 @@
 local Players = game:GetService("Players")
 local BadgeService = game:GetService("BadgeService")
 
--- Configure your milestones here: each entry needs a threshold and corresponding badgeId
--- Example:
--- local BADGE_MILESTONES = {
--- 	{ threshold = 100, badgeId = 123456 },
--- 	{ threshold = 1000, badgeId = 789012 },
--- }
-local BADGE_MILESTONES: { { threshold: number, badgeId: number } } = {}
+-- Purchases-based milestones
+local BADGE_MILESTONES: { { threshold: number, badgeId: number } } = {
+	{ threshold = 1, badgeId = 2129060302556121 }, -- New Collector
+	{ threshold = 5, badgeId = 139176286833309 }, -- Regular Customer
+	{ threshold = 10, badgeId = 2822683770878813 }, -- True Fan
+	{ threshold = 25, badgeId = 1553181686929842 }, -- Super Supporter
+	{ threshold = 50, badgeId = 507465820821322 }, -- Legendary Patron
+}
+
+table.sort(BADGE_MILESTONES, function(a, b)
+	return a.threshold < b.threshold
+end)
 
 local function tryAwardBadge(player: Player, badgeId: number)
 	local hasBadge = false
@@ -28,7 +33,7 @@ local function tryAwardBadge(player: Player, badgeId: number)
 	end)
 end
 
-local function onPointsChanged(player: Player, newValue: number)
+local function onPurchasesChanged(player: Player, newValue: number)
 	if #BADGE_MILESTONES == 0 then
 		return
 	end
@@ -41,29 +46,26 @@ end
 
 local function hookPlayer(player: Player)
 	local leaderstats = player:FindFirstChild("leaderstats")
+	local function connectPurchases(container: Instance)
+		local purchases = container:WaitForChild("Purchases", 10)
+		if purchases and purchases:IsA("IntValue") then
+			purchases.Changed:Connect(function()
+				onPurchasesChanged(player, purchases.Value)
+			end)
+			-- initial check
+			onPurchasesChanged(player, purchases.Value)
+		end
+	end
+
 	if not leaderstats then
 		player.ChildAdded:Connect(function(child)
 			if child.Name == "leaderstats" then
-				local points = child:WaitForChild("Points", 10)
-				if points and points:IsA("IntValue") then
-					points.Changed:Connect(function()
-						onPointsChanged(player, points.Value)
-					end)
-					-- initial check
-					onPointsChanged(player, points.Value)
-				end
+				connectPurchases(child)
 			end
 		end)
 		return
 	end
-	local points = leaderstats:FindFirstChild("Points")
-	if points and points:IsA("IntValue") then
-		points.Changed:Connect(function()
-			onPointsChanged(player, points.Value)
-		end)
-		-- initial check
-		onPointsChanged(player, points.Value)
-	end
+	connectPurchases(leaderstats)
 end
 
 Players.PlayerAdded:Connect(hookPlayer)

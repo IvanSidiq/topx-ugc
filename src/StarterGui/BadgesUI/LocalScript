@@ -1,0 +1,127 @@
+--!strict
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local gui = script.Parent
+
+-- Ensure parent Frame is invisible but still interactive
+if gui and gui:IsA("Frame") then
+	gui.BackgroundTransparency = 1
+	gui.BorderSizePixel = 0
+end
+
+-- UI refs
+local barFill: Instance? = gui:FindFirstChild("BarFill") or gui:FindFirstChild("ImageLabel")
+local badgeIcon: Instance? = gui:FindFirstChild("BadgeIcon")
+local label: Instance? = gui:FindFirstChild("TextLabel")
+
+-- make label background transparent and format text
+if label and label:IsA("TextLabel") then
+	label.BackgroundTransparency = 1
+	label.TextWrapped = true
+	label.TextScaled = true
+	label.TextSize = 14
+	label.LineHeight = 1.1
+	label.TextXAlignment = Enum.TextXAlignment.Center
+end
+
+-- Milestones must mirror server configuration
+local MILESTONES = {
+	{ threshold = 1,  name = "New Collector 🛒✨",    badgeId = 2129060302556121 },
+	{ threshold = 5,  name = "Regular Customer 🪙",    badgeId = 139176286833309 },
+	{ threshold = 10, name = "True Fan 🌟",            badgeId = 2822683770878813 },
+	{ threshold = 25, name = "Super Supporter 💎",      badgeId = 1553181686929842 },
+	{ threshold = 50, name = "Legendary Patron 👑",     badgeId = 507465820821322 },
+}
+
+table.sort(MILESTONES, function(a, b)
+	return a.threshold < b.threshold
+end)
+
+local function getLeaderstatsPurchases(): IntValue?
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = player:WaitForChild("leaderstats", 20)
+	end
+	if not leaderstats then return nil end
+	local purchases = leaderstats:FindFirstChild("Purchases")
+	if not purchases then
+		purchases = leaderstats:WaitForChild("Purchases", 20)
+	end
+	return purchases :: IntValue
+end
+
+local function findNextMilestone(purchases: number)
+	for _, m in ipairs(MILESTONES) do
+		if purchases < m.threshold then
+			return m
+		end
+	end
+	return nil
+end
+
+local function findPrevMilestone(purchases: number)
+	local prev = { threshold = 0 }
+	for _, m in ipairs(MILESTONES) do
+		if purchases >= m.threshold then
+			prev = m
+		else
+			break
+		end
+	end
+	return prev
+end
+
+local function setBarProgress(progress: number)
+	progress = math.clamp(progress, 0, 1)
+	if barFill and barFill:IsA("GuiObject") then
+		local goal = { Size = UDim2.new(progress, 0, barFill.Size.Y.Scale, barFill.Size.Y.Offset) }
+		TweenService:Create(barFill, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), goal):Play()
+	end
+end
+
+local function setBadgeIcon(badgeId: number)
+	if badgeIcon and badgeIcon:IsA("ImageLabel") then
+		badgeIcon.Image = string.format("rbxthumb://type=BadgeIcon&id=%d&w=150&h=150", badgeId)
+		badgeIcon.BackgroundTransparency = 1
+		badgeIcon.ImageTransparency = 0
+	end
+end
+
+local function updateUI(purchases: number)
+	local nextM = findNextMilestone(purchases)
+	if not nextM then
+		if label and label:IsA("TextLabel") then
+			label.Text = string.format("All badges unlocked! %d/%d Purchases", purchases, MILESTONES[#MILESTONES].threshold)
+		end
+		setBarProgress(1)
+		setBadgeIcon(MILESTONES[#MILESTONES].badgeId)
+		return
+	end
+
+	-- Progress is toward next milestone
+	local prevM = findPrevMilestone(purchases)
+	local denom = nextM.threshold
+	local progress = purchases / denom
+	if label and label:IsA("TextLabel") then
+		label.Text = string.format("%d/%d for Badge (%s)", purchases, denom, nextM.name)
+	end
+	setBarProgress(progress)
+	setBadgeIcon(nextM.badgeId)
+end
+
+local purchasesValue = getLeaderstatsPurchases()
+if purchasesValue then
+	-- Initialize bar fill width to 0 if it has full width by default
+	if barFill and barFill:IsA("GuiObject") then
+		barFill.Size = UDim2.new(0, 0, barFill.Size.Y.Scale, barFill.Size.Y.Offset)
+		barFill.AnchorPoint = Vector2.new(0, barFill.AnchorPoint.Y)
+		barFill.Position = UDim2.new(0, 0, barFill.Position.Y.Scale, barFill.Position.Y.Offset)
+	end
+	updateUI(purchasesValue.Value)
+	purchasesValue.Changed:Connect(function()
+		updateUI(purchasesValue.Value)
+	end)
+end 

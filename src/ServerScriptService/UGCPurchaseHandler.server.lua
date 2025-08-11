@@ -48,6 +48,14 @@ MarketplaceService.PromptPurchaseFinished:Connect(function(player, assetId, isPu
 		if success and productInfo and productInfo.IsForSale and productInfo.PriceInRobux then
 			local robuxSpent = productInfo.PriceInRobux
 			grantPoints(player, robuxSpent)
+			-- count purchase for badge milestones
+			local stats = player:FindFirstChild("leaderstats")
+			if stats then
+				local purchases = stats:FindFirstChild("Purchases")
+				if purchases and purchases:IsA("IntValue") then
+					purchases.Value += 1
+				end
+			end
 		end
 	end
 end)
@@ -95,6 +103,11 @@ game.Players.PlayerAdded:Connect(function(player)
 	r.Name = "RobuxSpent"
 	r.Value = robuxSpent
 	r.Parent = folder
+
+	local c = Instance.new("IntValue")
+	c.Name = "Purchases"
+	c.Value = 0
+	c.Parent = folder
 end)
 
 -- Save points only (Robux is saved during purchases)
