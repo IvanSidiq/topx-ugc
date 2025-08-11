@@ -1,5 +1,13 @@
-- Leaderboard fix
-- Leaderboard board
-- Leaderboard 3 top user dancing
+- Leaderboard fix [DONE]
+- Leaderboard board [DONE]
+- Leaderboard 3 top user dancing [DONE]
 - Add badges for milestones
-- Fix point to robux ration = 1:1
+  - Implemented `src/ServerScriptService/Badges.server.lua`. Fill `BADGE_MILESTONES` with your badge IDs and thresholds to activate.
+- Fix point to robux ration = 1:1 [DONE]
+- Deduplicate leaderstats creation: unify to a single script (either `PointsManager.server.lua` or `UGCPurchaseHandler.server.lua`), avoid multiple `leaderstats` folders and duplicated DataStore reads/writes. [DONE] (`PointsManager.server.lua` commented out)
+- Remove or merge `UGCPurchaseHandler0.server.lua`: it conflicts with `UGCPurchaseHandler.server.lua` and applies a different points ratio, causing double/inconsistent awards. [DONE]
+- Update points ratio to 1:1 in the single source of truth for granting points; ensure datastore persistence and any UI/readers align with this ratio. [DONE]
+- Fix `BoardUpdater.server.lua` to not call `InvokeServer` from the server. Replace with direct server-side fetch (OrderedDataStore) or a shared Module/Bindable. Also fix `topPlayers` scope and run order (currently referenced outside its definition). [DONE]
+- Ensure `ReplicatedStorage:GetLeaderboardData` RemoteFunction exists and is created at runtime; otherwise both `LeaderboardService.server.lua` and `BoardUpdater.server.lua` will stall on `WaitForChild`. [DONE]
+- Add guards in `BoardUpdater.server.lua` for missing instances: `Workspace.LeaderboardBoard`, `LeaderboardDisplay`, `CountdownLabel`, `ServerStorage.MannequinTemplate`, and `Pedestal1..N`. [DONE]
+- Cache usernames in `LeaderboardService.server.lua` to reduce repeated `GetNameFromUserIdAsync` calls on frequent refresh. [DONE]

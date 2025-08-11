@@ -1,0 +1,13 @@
+# Roblox Studio temporary files
+*.rbxl.lock
+*.rbxm.lock
+*.rbxmx.lock
+*.rbxlx.lock
+*.rblx.lock
+
+# Build and generated
+build/
+out/
+
+# OS
+.DS_Store 

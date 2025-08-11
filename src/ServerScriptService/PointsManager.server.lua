@@ -1,3 +1,4 @@
+--[[
 local DataStoreService = game:GetService("DataStoreService")
 local PointsDataStore = DataStoreService:GetDataStore("UGCPlayerPoints")
 
@@ -32,3 +33,4 @@ game.Players.PlayerRemoving:Connect(function(player)
 		end)
 	end
 end)
+]]

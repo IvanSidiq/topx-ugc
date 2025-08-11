@@ -2,7 +2,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 local RobuxLeaderboard = DataStoreService:GetOrderedDataStore("RobuxSpentLeaderboard")
 
-local getLeaderboard = ReplicatedStorage:WaitForChild("GetLeaderboardData")
+-- Ensure RemoteFunction exists
+local getLeaderboard = ReplicatedStorage:FindFirstChild("GetLeaderboardData")
+if not getLeaderboard then
+	getLeaderboard = Instance.new("RemoteFunction")
+	getLeaderboard.Name = "GetLeaderboardData"
+	getLeaderboard.Parent = ReplicatedStorage
+end
+
+-- Simple username cache
+local userIdToNameCache: {[number]: string} = {}
 
 getLeaderboard.OnServerInvoke = function()
 	local success, pages = pcall(function()
@@ -19,15 +28,18 @@ getLeaderboard.OnServerInvoke = function()
 	for i, entry in ipairs(topPlayers) do
 		local userId = entry.key
 		local robux = entry.value
-		local username = "[Unknown]"
+		local username = userIdToNameCache[userId]
 
-		-- Try to get username
-		local successName, name = pcall(function()
-			return game.Players:GetNameFromUserIdAsync(userId)
-		end)
-
-		if successName then
-			username = name
+		if not username then
+			local successName, name = pcall(function()
+				return game.Players:GetNameFromUserIdAsync(userId)
+			end)
+			if successName and name then
+				username = name
+				userIdToNameCache[userId] = name
+			else
+				username = "[Unknown]"
+			end
 		end
 
 		table.insert(result, { rank = i, name = username, value = robux, userid = userId })

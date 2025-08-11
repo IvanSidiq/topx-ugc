@@ -12,6 +12,7 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
+local DataStoreService = game:GetService("DataStoreService")
 
 local Types = require(ReplicatedStorage.Utility.Types)
 local RestrictedItems = require(ReplicatedStorage.Libraries.RestrictedItems)
@@ -20,9 +21,36 @@ local validateNumber = require(ServerScriptService.Utility.TypeValidation.valida
 local validateEnum = require(ServerScriptService.Utility.TypeValidation.validateEnum)
 local validateBulkItem = require(script.validateBulkItem)
 
+local TestMode = require(ServerScriptService.Utility.TestMode)
+local TestStore = require(ServerScriptService.Utility.TestStore)
+
 local remotes = ReplicatedStorage.Remotes
 local bulkPurchaseRemote = remotes.BulkPurchase
 local purchaseRemote = remotes.Purchase
+
+local RobuxLeaderboard = DataStoreService:GetOrderedDataStore("RobuxSpentLeaderboard")
+
+local function simulateGrant(player: Player, robuxSpent: number)
+	local stats = player:FindFirstChild("leaderstats")
+	if not stats then return end
+
+	local points = stats:FindFirstChild("Points")
+	if points then
+		points.Value += math.floor(robuxSpent / 1)
+	end
+
+	local spent = stats:FindFirstChild("RobuxSpent")
+	if spent then
+		spent.Value += robuxSpent
+		if TestMode then
+			TestStore.addSpend(player.UserId, spent.Value)
+		else
+			pcall(function()
+				RobuxLeaderboard:SetAsync(player.UserId, spent.Value)
+			end)
+		end
+	end
+end
 
 local function onPurchaseEvent(player: Player, itemId: number, itemType: Enum.MarketplaceProductType)
 	if not validateNumber(itemId) then
@@ -33,10 +61,19 @@ local function onPurchaseEvent(player: Player, itemId: number, itemType: Enum.Ma
 		return
 	end
 
-	-- Make sure this item is not in the restricted items list. This list should be used to
-	-- disable purchasing items using these remotes, e.g. in the case of giving out free
-	-- UGC through a separate game mechanic.
 	if RestrictedItems.isRestricted(itemId, itemType) then
+		return
+	end
+
+	if TestMode then
+		local robuxSpent = 50
+		local ok, info = pcall(function()
+			return MarketplaceService:GetProductInfo(itemId)
+		end)
+		if ok and info and info.PriceInRobux then
+			robuxSpent = info.PriceInRobux
+		end
+		simulateGrant(player, robuxSpent)
 		return
 	end
 
@@ -52,13 +89,27 @@ local function onBulkPurchaseEvent(player: Player, bulkPurchaseItems: { Types.Bu
 		return
 	end
 
-	-- Make sure no items are in the restricted items list. This list should be used to
-	-- disable purchasing items using these remotes, e.g. in the case of giving out free
-	-- UGC through a separate game mechanic.
 	for _, item in bulkPurchaseItems do
 		if RestrictedItems.isRestricted(tonumber(item.Id) :: number, item.Type) then
 			return
 		end
+	end
+
+	if TestMode then
+		local total = 0
+		for _, item in bulkPurchaseItems do
+			local idNum = tonumber(item.Id) or 0
+			local ok, info = pcall(function()
+				return MarketplaceService:GetProductInfo(idNum)
+			end)
+			if ok and info and info.PriceInRobux then
+				total += info.PriceInRobux
+			else
+				total += 50
+			end
+		end
+		simulateGrant(player, total)
+		return
 	end
 
 	local options = {}

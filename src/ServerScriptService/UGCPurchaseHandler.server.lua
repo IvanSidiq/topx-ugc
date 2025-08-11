@@ -1,5 +1,9 @@
 local MarketplaceService = game:GetService("MarketplaceService")
 local DataStoreService = game:GetService("DataStoreService")
+local RunService = game:GetService("RunService")
+
+local TestMode = require(script.Parent.Utility.TestMode)
+local TestStore = require(script.Parent.Utility.TestStore)
 
 local PointsDataStore = DataStoreService:GetDataStore("UGCPlayerPoints")
 local RobuxLeaderboard = DataStoreService:GetOrderedDataStore("RobuxSpentLeaderboard")
@@ -12,7 +16,7 @@ local function grantPoints(player, robuxSpent)
 	-- Give points
 	local points = stats:FindFirstChild("Points")
 	if points then
-		points.Value += math.floor(robuxSpent / 10)
+		points.Value += math.floor(robuxSpent / 1)
 	end
 
 	-- Update robux spent
@@ -20,12 +24,16 @@ local function grantPoints(player, robuxSpent)
 	if spent then
 		spent.Value += robuxSpent
 
-		-- Save to OrderedDataStore
-		local success, err = pcall(function()
-			RobuxLeaderboard:SetAsync(player.UserId, spent.Value)
-		end)
-		if not success then
-			warn("Failed to update leaderboard: " .. err)
+		if TestMode then
+			TestStore.addSpend(player.UserId, robuxSpent)
+		else
+			-- Save to OrderedDataStore
+			local success, err = pcall(function()
+				RobuxLeaderboard:SetAsync(player.UserId, spent.Value)
+			end)
+			if not success then
+				warn("Failed to update leaderboard: " .. err)
+			end
 		end
 	end
 end
@@ -50,21 +58,27 @@ game.Players.PlayerAdded:Connect(function(player)
 	local robuxSpent = 0
 	local points = 0
 
-	local success, result = pcall(function()
-		return PointsDataStore:GetAsync(dataKey)
-	end)
-
-	if success and result then
-		points = result
+	if not TestMode then
+		local success, result = pcall(function()
+			return PointsDataStore:GetAsync(dataKey)
+		end)
+		if success and result then
+			points = result
+		end
+	else
+		points = 0
 	end
 
 	-- Get robux leaderboard value
-	local robuxSuccess, robuxValue = pcall(function()
-		return RobuxLeaderboard:GetAsync(player.UserId)
-	end)
-
-	if robuxSuccess and robuxValue then
-		robuxSpent = robuxValue
+	if not TestMode then
+		local robuxSuccess, robuxValue = pcall(function()
+			return RobuxLeaderboard:GetAsync(player.UserId)
+		end)
+		if robuxSuccess and robuxValue then
+			robuxSpent = robuxValue
+		end
+	else
+		robuxSpent = TestStore.getRobuxSpent(player.UserId)
 	end
 
 	-- Setup leaderstats
@@ -85,6 +99,7 @@ end)
 
 -- Save points only (Robux is saved during purchases)
 game.Players.PlayerRemoving:Connect(function(player)
+	if TestMode then return end
 	local points = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChild("Points")
 	if points then
 		pcall(function()
