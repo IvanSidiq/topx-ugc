@@ -15,25 +15,29 @@ end
 -- UI refs
 local barFill: Instance? = gui:FindFirstChild("BarFill") or gui:FindFirstChild("ImageLabel")
 local badgeIcon: Instance? = gui:FindFirstChild("BadgeIcon")
-local label: Instance? = gui:FindFirstChild("TextLabel")
+local label: Instance? = gui.BadgeIcon:FindFirstChild("TextLabel")
 
 -- make label background transparent and format text
 if label and label:IsA("TextLabel") then
 	label.BackgroundTransparency = 1
+	label.TextSize = 14
 	label.TextWrapped = true
 	label.TextScaled = true
-	label.TextSize = 14
 	label.LineHeight = 1.1
 	label.TextXAlignment = Enum.TextXAlignment.Center
 end
 
 -- Milestones must mirror server configuration
 local MILESTONES = {
-	{ threshold = 1,  name = "New Collector 🛒✨",    badgeId = 2129060302556121 },
+	{ threshold = 1,  name = "New Collector ✨",    badgeId = 2129060302556121 },
 	{ threshold = 5,  name = "Regular Customer 🪙",    badgeId = 139176286833309 },
 	{ threshold = 10, name = "True Fan 🌟",            badgeId = 2822683770878813 },
 	{ threshold = 25, name = "Super Supporter 💎",      badgeId = 1553181686929842 },
 	{ threshold = 50, name = "Legendary Patron 👑",     badgeId = 507465820821322 },
+	{ threshold = 75, name = "Elite Shopper 💎",        badgeId = 1863509829778311 },
+	{ threshold = 100, name = "Centurion Collector 💎",  badgeId = 3449424699857706 },
+	{ threshold = 150, name = "Grandmaster Buyer 💎",    badgeId = 2244066485017695 },
+	{ threshold = 200, name = "UGC Immortal 💎",         badgeId = 2326661096835066 },
 }
 
 table.sort(MILESTONES, function(a, b)

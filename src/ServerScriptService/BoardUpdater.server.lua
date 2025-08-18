@@ -1,6 +1,7 @@
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 local TestMode = require(script.Parent.Utility.TestMode)
 local TestStore = require(script.Parent.Utility.TestStore)
@@ -20,6 +21,73 @@ if not gui then
 end
 
 local countdownLabel = gui:FindFirstChild("CountdownLabel")
+
+-- Animation configuration
+local NEW_ANIMATION_ID = "rbxassetid://126414254246604"
+local FALLBACK_ANIMATION_ID = "rbxassetid://507771019" -- default Roblox dance
+
+local function isAnimationAssetIdAccessible(animationIdString: string): boolean
+	print("Checking if animation ID is accessible:", animationIdString)
+	local numericId = tonumber(string.match(animationIdString, "%d+"))
+	if not numericId then
+		print("Failed to extract numeric ID from:", animationIdString)
+		return false
+	end
+	print("Extracted numeric ID:", numericId)
+	local ok, info = pcall(function()
+		return MarketplaceService:GetProductInfo(numericId)
+	end)
+	if not ok or not info then
+		print("Failed to get product info for ID:", numericId)
+		return false
+	end
+	print("Got product info:", info)
+	-- Ensure it's an Emote asset type
+	local isAnimation = (info.AssetTypeId == 61)
+	print("Is animation asset:", isAnimation)
+	return isAnimation
+end
+
+-- Helper: detect asset type for a given id (Animation vs Emote)
+local function getAssetTypeForId(animationIdString: string): string?
+	local numericId = tonumber(string.match(animationIdString, "%d+"))
+	if not numericId then return nil end
+	local ok, info = pcall(function()
+		return MarketplaceService:GetProductInfo(numericId)
+	end)
+	if not ok or not info then return nil end
+	if info.AssetTypeId == Enum.AssetType.Animation.Value or info.AssetTypeId == 24 then
+		return "Animation"
+	elseif info.AssetTypeId == Enum.AssetType.EmoteAnimation.Value or info.AssetTypeId == 61 then
+		return "EmoteAnimation"
+	end
+	return nil
+end
+
+-- Helper: try to play an Emote (AssetTypeId 61) on a humanoid
+local function tryPlayEmoteOnHumanoid(humanoid: Humanoid, animationIdString: string): boolean
+	local numericId = tonumber(string.match(animationIdString, "%d+"))
+	if not numericId then return false end
+	local okDesc, desc = pcall(function()
+		return humanoid:GetAppliedDescription()
+	end)
+	if not okDesc or not desc then
+		desc = Instance.new("HumanoidDescription")
+	end
+	local okSet = pcall(function()
+		local emotes = desc:GetEmotes()
+		if type(emotes) ~= "table" then emotes = {} end
+		emotes.Custom = { numericId }
+		desc:SetEmotes(emotes)
+		desc:SetEquippedEmotes({ { Name = "Custom" } })
+		humanoid:ApplyDescriptionReset(desc)
+	end)
+	if not okSet then return false end
+	local okPlay, played = pcall(function()
+		return humanoid:PlayEmote("Custom")
+	end)
+	return okPlay and played == true
+end
 
 local function clearRows()
 	for _, child in pairs(gui:GetChildren()) do
@@ -144,10 +212,38 @@ local function updateTopMannequins(topPlayers)
 					end
 				end
 				if animator then
-					local danceAnim = Instance.new("Animation")
-					danceAnim.AnimationId = "rbxassetid://507771019"
-					local track = animator:LoadAnimation(danceAnim)
-					track:Play()
+					local humanoid = rig:FindFirstChildOfClass("Humanoid")
+					local function tryPlayAnimation(animationId: string): boolean
+						local success, trackOrErr = pcall(function()
+							local anim = Instance.new("Animation")
+							anim.AnimationId = animationId
+							return animator:LoadAnimation(anim)
+						end)
+						if success and trackOrErr then
+							local track = trackOrErr
+							track.Looped = true
+							track:Play()
+							return true
+						end
+						return false
+					end
+
+					local chosenId = NEW_ANIMATION_ID
+					local assetType = getAssetTypeForId(chosenId)
+					if assetType == "EmoteAnimation" and humanoid then
+						if not tryPlayEmoteOnHumanoid(humanoid, chosenId) then
+							warn("Failed to play emote; falling back to default animation.")
+							tryPlayAnimation(FALLBACK_ANIMATION_ID)
+						end
+					elseif assetType == "Animation" then
+						if not tryPlayAnimation(chosenId) then
+							warn("Failed to load animation ID; falling back to default dance animation.")
+							tryPlayAnimation(FALLBACK_ANIMATION_ID)
+						end
+					else
+						warn("Unsupported asset type for ID: " .. tostring(chosenId) .. ". Falling back to default animation.")
+						tryPlayAnimation(FALLBACK_ANIMATION_ID)
+					end
 				end
 			end
 		end

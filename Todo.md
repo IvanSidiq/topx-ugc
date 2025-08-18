@@ -11,3 +11,8 @@
 - Ensure `ReplicatedStorage:GetLeaderboardData` RemoteFunction exists and is created at runtime; otherwise both `LeaderboardService.server.lua` and `BoardUpdater.server.lua` will stall on `WaitForChild`. [DONE]
 - Add guards in `BoardUpdater.server.lua` for missing instances: `Workspace.LeaderboardBoard`, `LeaderboardDisplay`, `CountdownLabel`, `ServerStorage.MannequinTemplate`, and `Pedestal1..N`. [DONE]
 - Cache usernames in `LeaderboardService.server.lua` to reduce repeated `GetNameFromUserIdAsync` calls on frequent refresh. [DONE]
+- Check and Fix Badges [Done]
+- Check and Fix local robux prices [Done]
+- Replace the prize with the new one 
+  https://www.roblox.com/catalog/75903645746351
+  https://www.roblox.com/catalog/85890247763956

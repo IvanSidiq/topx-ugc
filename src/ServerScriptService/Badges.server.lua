@@ -10,6 +10,10 @@ local BADGE_MILESTONES: { { threshold: number, badgeId: number } } = {
 	{ threshold = 10, badgeId = 2822683770878813 }, -- True Fan
 	{ threshold = 25, badgeId = 1553181686929842 }, -- Super Supporter
 	{ threshold = 50, badgeId = 507465820821322 }, -- Legendary Patron
+	{ threshold = 75, badgeId = 1863509829778311 }, -- Elite Shopper
+	{ threshold = 100, badgeId = 3449424699857706 }, -- Centurion Collector
+	{ threshold = 150, badgeId = 2244066485017695 }, -- Grandmaster Buyer
+	{ threshold = 200, badgeId = 2326661096835066 }, -- UGC Immortal
 }
 
 table.sort(BADGE_MILESTONES, function(a, b)
