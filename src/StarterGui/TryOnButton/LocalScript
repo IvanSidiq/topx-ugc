@@ -1,0 +1,151 @@
+local TryButton = script.Parent
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+
+-- Name of the accessory in ReplicatedStorage.UGCFree
+local ACCESSORY_NAME = "Accessory (Glitching Black Ancient Circuit Line Mecha Headphones)"
+
+local function toggleAccessory(character)
+	print("=== TOGGLE ACCESSORY START ===")
+	print("Character name:", character.Name)
+	print("Looking for accessory:", ACCESSORY_NAME)
+	
+	-- Check if the player already has the accessory equipped
+	local hasAccessory = false
+	local existingAccessory = nil
+	
+	print("Scanning character for existing accessories...")
+	local accessoryCount = 0
+	for _, child in pairs(character:GetChildren()) do
+		if child:IsA("Accessory") then
+			accessoryCount = accessoryCount + 1
+			print("Found accessory:", child.Name)
+			
+			if child.Name:lower():find("headphones") or 
+			   child.Name:lower():find("mecha") or
+			   child.Name:lower():find("circuit") then
+				hasAccessory = true
+				existingAccessory = child
+				print("MATCH! Found target accessory:", child.Name)
+			end
+		end
+	end
+	print("Total accessories found:", accessoryCount)
+	print("Has target accessory:", hasAccessory)
+	
+	local success, err = pcall(function()
+		if hasAccessory then
+			-- Remove the accessory if already equipped
+			print("REMOVING ACCESSORY...")
+			if existingAccessory then
+				print("Destroying accessory:", existingAccessory.Name)
+				existingAccessory:Destroy()
+				print("✅ Successfully removed accessory")
+			end
+		else
+			-- Equip the accessory if not already equipped
+			print("EQUIPPING ACCESSORY...")
+			print("Getting UGCFree folder...")
+			local ugcFree = ReplicatedStorage:WaitForChild("UGCFree")
+			print("✅ Found UGCFree folder")
+			
+			print("Getting accessory from UGCFree...")
+			local accessory = ugcFree:WaitForChild(ACCESSORY_NAME)
+			print("✅ Found accessory in UGCFree:", accessory.Name)
+			print("Accessory class:", accessory.ClassName)
+			
+			-- Make sure the character has a humanoid and is fully loaded
+			print("Checking for Humanoid...")
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if not humanoid then
+				warn("❌ No Humanoid found in character")
+				return
+			end
+			print("✅ Found Humanoid")
+			
+			-- Wait for the character to be fully loaded
+			print("Checking for Head...")
+			if not character:FindFirstChild("Head") then
+				print("Head not found, waiting...")
+				character:WaitForChild("Head", 5) -- Wait up to 5 seconds
+			end
+			local head = character:FindFirstChild("Head")
+			if head then
+				print("✅ Found Head")
+			else
+				warn("❌ Head still not found after waiting")
+			end
+			
+			print("Cloning accessory...")
+			local clonedAccessory = accessory:Clone()
+			print("✅ Cloned accessory:", clonedAccessory.Name)
+			print("Cloned accessory class:", clonedAccessory.ClassName)
+			
+			-- Debug: Check accessory structure
+			print("--- ACCESSORY STRUCTURE ---")
+			for _, child in pairs(clonedAccessory:GetChildren()) do
+				print("  Child:", child.Name, "Class:", child.ClassName)
+				if child.Name == "Handle" then
+					print("    Handle CFrame:", child.CFrame)
+					print("    Handle Size:", child.Size)
+					print("    Handle Anchored:", child.Anchored)
+					print("    Handle CanCollide:", child.CanCollide)
+					-- Check for attachments
+					for _, attachment in pairs(child:GetChildren()) do
+						if attachment:IsA("Attachment") then
+							print("    Attachment found:", attachment.Name)
+						elseif attachment:IsA("WeldConstraint") or attachment:IsA("Weld") then
+							print("    Weld found:", attachment.Name, attachment.ClassName)
+						end
+					end
+				end
+			end
+			print("--- END STRUCTURE ---")
+			
+			-- Use Humanoid:AddAccessory for proper attachment
+			print("Attempting to use Humanoid:AddAccessory...")
+			local addSuccess, addErr = pcall(function()
+				humanoid:AddAccessory(clonedAccessory)
+			end)
+			
+			if addSuccess then
+				print("✅ Successfully used Humanoid:AddAccessory")
+				print("Accessory parent:", clonedAccessory.Parent and clonedAccessory.Parent.Name or "nil")
+			else
+				print("❌ Humanoid:AddAccessory failed:", addErr)
+				print("Trying fallback method...")
+				-- Fallback: try parenting directly and let Roblox handle it
+				clonedAccessory.Parent = character
+				print("✅ Used fallback parenting method")
+				print("Accessory parent:", clonedAccessory.Parent and clonedAccessory.Parent.Name or "nil")
+			end
+			
+			-- Simple check if accessory was applied successfully
+			task.wait(0.1)
+			local stillThere = character:FindFirstChild(clonedAccessory.Name)
+			if stillThere then
+				print("✅ Accessory successfully attached to character")
+			else
+				print("❌ Accessory not found in character after attachment")
+			end
+		end
+	end)
+	
+	if not success then
+		warn("❌ Failed to toggle accessory:", err)
+	end
+	
+	print("=== TOGGLE ACCESSORY END ===")
+end
+
+TryButton.MouseButton1Click:Connect(function()
+	local character = player.Character
+	if not character then
+		warn("No character found")
+		return
+	end
+	
+	toggleAccessory(character)
+end)

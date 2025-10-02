@@ -1,0 +1,54 @@
+local player = game.Players.LocalPlayer
+local pointsLabel = script.Parent:WaitForChild("PointsLabel")
+
+-- Safe function to get leaderstats without infinite yield
+local function getLeaderstats(player, timeoutSeconds)
+	timeoutSeconds = timeoutSeconds or 10
+	local maxRetries = timeoutSeconds * 10 -- 10 checks per second
+	local retryCount = 0
+	
+	local stats = player:FindFirstChild("leaderstats")
+	while not stats and retryCount < maxRetries do
+		task.wait(0.1)
+		stats = player:FindFirstChild("leaderstats")
+		retryCount += 1
+	end
+	
+	return stats
+end
+
+local function update()
+	-- Wait a moment for server to create leaderstats
+	task.wait(2)
+	
+	-- Safely get leaderstats with timeout
+	local stats = getLeaderstats(player, 15)
+	if not stats then
+		warn("Could not find leaderstats for PointsUI")
+		return
+	end
+	
+	-- Safely get Points with timeout
+	local points = stats:FindFirstChild("Points")
+	local retryCount = 0
+	while not points and retryCount < 100 do -- 10 seconds max
+		task.wait(0.1)
+		points = stats:FindFirstChild("Points")
+		retryCount += 1
+	end
+	
+	if not points then
+		warn("Could not find Points value for PointsUI")
+		return
+	end
+
+	-- Connect to value changes
+	points:GetPropertyChangedSignal("Value"):Connect(function()
+		pointsLabel.Text = "Points: " .. points.Value
+	end)
+
+	-- Set initial value
+	pointsLabel.Text = "Points: " .. points.Value
+end
+
+update()

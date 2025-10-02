@@ -1,0 +1,103 @@
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+
+-- Set this to the ASSET ID of your accessory (not the CollectibleItemId)
+local FREE_ASSET_ID = 85890247763956 -- replace with the accessory assetId
+
+local ui = script.Parent.Parent
+local claimButton = script.Parent
+local messageLabel = ui:WaitForChild("MessageLabel")
+local successSound = ui:WaitForChild("SuccessSound")
+local errorSound = ui:WaitForChild("ErrorSound")
+local remainingLabel = script.Parent:WaitForChild("RemainingLabel")
+
+-- Wait for RemoteEvents
+local claimEvent = ReplicatedStorage:WaitForChild("UGC_ClaimItem")
+local claimResponseEvent = ReplicatedStorage:WaitForChild("UGC_ClaimResponse")
+
+local isClaiming = false
+local cooldown = false
+
+local function showMessage(text, color, duration, isSuccess)
+	messageLabel.Text = text
+	messageLabel.TextColor3 = color
+	messageLabel.Visible = true
+	(if isSuccess then successSound else errorSound):Play()
+	task.delay(duration, function()
+		messageLabel.Visible = false
+	end)
+end
+
+local function getAssetInfo()
+	local ok, info = pcall(function()
+		return MarketplaceService:GetProductInfo(FREE_ASSET_ID, Enum.InfoType.Asset)
+	end)
+	if not ok then return nil end
+	return info
+end
+
+local function isCollectible(info)
+	return info and (info.CollectibleItemId ~= nil)
+end
+
+local function requestClaim()
+	-- Send claim request to server
+	claimEvent:FireServer(FREE_ASSET_ID)
+end
+
+claimButton.MouseButton1Click:Connect(function()
+	if cooldown or isClaiming then return end
+	cooldown = true
+
+	local stats = player:FindFirstChild("leaderstats")
+	local points = stats and stats:FindFirstChild("Points")
+	if not points then
+		showMessage("Stats not found", Color3.fromRGB(255,80,80), 2, false)
+		cooldown = false
+		return
+	end
+
+	if points.Value >= 500 then
+		isClaiming = true
+		requestClaim()
+	else
+		showMessage("Not enough points!", Color3.fromRGB(255,80,80), 2, false)
+	end
+
+	task.delay(2, function() cooldown = false end)
+end)
+
+-- Handle server responses for claim attempts
+claimResponseEvent.OnClientEvent:Connect(function(success, message, messageType)
+	isClaiming = false
+	
+	if success then
+		if messageType == "success" then
+			showMessage(message, Color3.fromRGB(0,255,0), 2, true)
+		else
+			showMessage(message, Color3.fromRGB(255,170,50), 2, false)
+		end
+	else
+		showMessage(message, Color3.fromRGB(255,80,80), 2, false)
+	end
+end)
+
+local function updateRemaining()
+	local info = getAssetInfo()
+	if not info then return end
+	local rem = info.Remaining
+	if typeof(rem) ~= "number" then
+		remainingLabel.Text = "stocks: N/A"
+	else
+		remainingLabel.Text = string.format("stocks: %d/300", rem)
+	end
+end
+
+task.spawn(function()
+	while true do
+		updateRemaining()
+		task.wait(10)
+	end
+end)
