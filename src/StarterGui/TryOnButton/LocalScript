@@ -1,6 +1,7 @@
 local TryButton = script.Parent
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
@@ -140,6 +141,98 @@ local function toggleAccessory(character)
 	print("=== TOGGLE ACCESSORY END ===")
 end
 
+-- Function to directly interact with the mannequin
+local function equipHeadphonesFromMannequin()
+	print("=== EQUIPPING FROM MANNEQUIN START ===")
+	
+	local character = player.Character
+	if not character then
+		warn("❌ No character found")
+		return
+	end
+	
+	-- Find the WhiteHeadphones mannequin in Workspace
+	local mannequin = Workspace:FindFirstChild("WhiteHeadphones")
+	if not mannequin then
+		warn("❌ WhiteHeadphones mannequin not found in Workspace")
+		return
+	end
+	
+	print("✅ Found WhiteHeadphones mannequin")
+	
+	-- Find the accessory on the mannequin
+	local accessory = mannequin:FindFirstChildOfClass("Accessory")
+	if not accessory then
+		warn("❌ No accessory found on mannequin")
+		return
+	end
+	
+	print("✅ Found accessory on mannequin:", accessory.Name)
+	
+	-- Make sure the character has a humanoid and is fully loaded
+	print("Checking for Humanoid...")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		warn("❌ No Humanoid found in character")
+		return
+	end
+	print("✅ Found Humanoid")
+	
+	-- Wait for the character to be fully loaded
+	print("Checking for Head...")
+	if not character:FindFirstChild("Head") then
+		print("Head not found, waiting...")
+		character:WaitForChild("Head", 5) -- Wait up to 5 seconds
+	end
+	local head = character:FindFirstChild("Head")
+	if head then
+		print("✅ Found Head")
+	else
+		warn("❌ Head still not found after waiting")
+	end
+	
+	-- Clone and equip the accessory (same logic as working toggleAccessory function)
+	local success, err = pcall(function()
+		print("Cloning accessory...")
+		local clonedAccessory = accessory:Clone()
+		print("✅ Cloned accessory:", clonedAccessory.Name)
+		print("Cloned accessory class:", clonedAccessory.ClassName)
+		
+		-- Use Humanoid:AddAccessory for proper attachment (same as working code)
+		print("Attempting to use Humanoid:AddAccessory...")
+		local addSuccess, addErr = pcall(function()
+			humanoid:AddAccessory(clonedAccessory)
+		end)
+		
+		if addSuccess then
+			print("✅ Successfully used Humanoid:AddAccessory")
+			print("Accessory parent:", clonedAccessory.Parent and clonedAccessory.Parent.Name or "nil")
+		else
+			print("❌ Humanoid:AddAccessory failed:", addErr)
+			print("Trying fallback method...")
+			-- Fallback: try parenting directly and let Roblox handle it
+			clonedAccessory.Parent = character
+			print("✅ Used fallback parenting method")
+			print("Accessory parent:", clonedAccessory.Parent and clonedAccessory.Parent.Name or "nil")
+		end
+		
+		-- Simple check if accessory was applied successfully
+		task.wait(0.1)
+		local stillThere = character:FindFirstChild(clonedAccessory.Name)
+		if stillThere then
+			print("✅ Accessory successfully attached to character")
+		else
+			print("❌ Accessory not found in character after attachment")
+		end
+	end)
+	
+	if not success then
+		warn("❌ Failed to equip accessory from mannequin:", err)
+	end
+	
+	print("=== EQUIPPING FROM MANNEQUIN END ===")
+end
+
 TryButton.MouseButton1Click:Connect(function()
 	local character = player.Character
 	if not character then
@@ -147,5 +240,11 @@ TryButton.MouseButton1Click:Connect(function()
 		return
 	end
 	
-	toggleAccessory(character)
+	-- Check if player is holding Shift to equip from mannequin instead
+	local UserInputService = game:GetService("UserInputService")
+	if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift) then
+		equipHeadphonesFromMannequin()
+	else
+		toggleAccessory(character)
+	end
 end)

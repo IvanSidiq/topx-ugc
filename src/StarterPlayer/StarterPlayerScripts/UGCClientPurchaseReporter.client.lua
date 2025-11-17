@@ -4,7 +4,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LOCAL_PLAYER = Players.LocalPlayer
 local reportEvent = ReplicatedStorage:WaitForChild("UGC_ReportPurchasePrice", 10)
-local bulkPurchaseReportEvent = ReplicatedStorage:WaitForChild("UGC_ReportBulkPurchase", 10)
 
 local function getRegionalPriceForAsset(assetId: number, infoType: Enum.InfoType?): number?
 	local product
@@ -84,108 +83,6 @@ if MarketplaceService.PromptBundlePurchaseFinished then
 				-- If we can't get price, still report 0 so server knows a purchase happened
 				if reportEvent then
 					reportEvent:FireServer(bundleId, 0, "Bundle")
-				end
-			end
-		end
-	end)
-end
-
--- Listen for bulk/cart purchases
-if MarketplaceService.PromptBulkPurchaseFinished then
-	MarketplaceService.PromptBulkPurchaseFinished:Connect(function(player, status, purchaseInfo)
-		print("PromptBulkPurchaseFinished - Player:", player, "Status:", status, "Info:", purchaseInfo)
-		
-		-- Check if purchase was completed successfully
-		if status == Enum.MarketplaceBulkPurchasePromptStatus.Completed and purchaseInfo then
-			-- Try to get bulkPurchaseReportEvent again if it wasn't available initially
-			local currentBulkEvent = bulkPurchaseReportEvent or ReplicatedStorage:FindFirstChild("UGC_ReportBulkPurchase")
-			if currentBulkEvent then
-				local items = purchaseInfo.Items
-				local totalRobuxSpent = purchaseInfo.RobuxSpent
-				
-				if items and typeof(items) == "table" and next(items) then
-					-- Count items manually since #items might not work with non-sequential tables
-					local itemCount = 0
-					for _ in pairs(items) do
-						itemCount += 1
-					end
-					print("Reporting bulk purchase with", itemCount, "items, total robux:", totalRobuxSpent)
-					
-					-- Convert the items to the format expected by server
-					local convertedItems = {}
-					for _, item in ipairs(items) do
-						-- Check if the item was purchased successfully
-						-- The status appears to be an enum value, let's check for "Success" string or enum
-						local isSuccess = (item.status == "Success") or 
-										  (typeof(item.status) == "EnumItem" and tostring(item.status) == "Success") or
-										  (item.status == Enum.MarketplaceItemPurchaseStatus.Success)
-						
-						if isSuccess then
-							table.insert(convertedItems, {
-								Id = tonumber(item.id) or item.id,
-								Type = item.type,
-								Status = item.status
-							})
-						end
-					end
-					
-					-- Report the bulk purchase to server with total robux spent
-					if #convertedItems > 0 then
-						currentBulkEvent:FireServer({
-							Items = convertedItems,
-							RobuxSpent = totalRobuxSpent
-						})
-					end
-					
-					-- Also report individual item prices for future reference
-					for _, item in ipairs(items) do
-						-- Check if the item was purchased successfully (same logic as above)
-						local isSuccess = (item.status == "Success") or 
-										  (typeof(item.status) == "EnumItem" and tostring(item.status) == "Success") or
-										  (item.status == Enum.MarketplaceItemPurchaseStatus.Success)
-						
-						if isSuccess then
-							local itemId = tonumber(item.id) or item.id
-							local itemType = item.type
-							
-							local price
-							if itemType == Enum.MarketplaceProductType.AvatarBundle then
-								price = getRegionalPriceForAsset(itemId, Enum.InfoType.Bundle)
-							else
-								price = getRegionalPriceForAsset(itemId, Enum.InfoType.Asset)
-							end
-							
-							if price and price > 0 and reportEvent then
-								local infoTypeName = "Asset"
-								if itemType == Enum.MarketplaceProductType.AvatarBundle then
-									infoTypeName = "Bundle"
-								end
-								reportEvent:FireServer(itemId, price, infoTypeName)
-							else
-								-- Report 0 so server knows the purchase happened
-								if reportEvent then
-									reportEvent:FireServer(itemId, 0, "BulkItem")
-								end
-							end
-						end
-					end
-				end
-			end
-		else
-			if status ~= Enum.MarketplaceBulkPurchasePromptStatus.Completed then
-				print("Bulk purchase not completed - Status:", status)
-			elseif not purchaseInfo then
-				print("Bulk purchase completed but no purchase info provided")
-			elseif not purchaseInfo.Items or typeof(purchaseInfo.Items) ~= "table" then
-				print("Bulk purchase completed but items data is invalid:", typeof(purchaseInfo.Items))
-			elseif not next(purchaseInfo.Items) then
-				print("Bulk purchase completed but items table is empty")
-			else
-				local currentBulkEvent = bulkPurchaseReportEvent or ReplicatedStorage:FindFirstChild("UGC_ReportBulkPurchase")
-				if not currentBulkEvent then
-					print("Bulk purchase completed but bulkPurchaseReportEvent not available")
-				else
-					print("Bulk purchase completed but failed unknown validation")
 				end
 			end
 		end

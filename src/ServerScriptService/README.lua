@@ -48,7 +48,7 @@
 	## Restricted Items List
 
 	The restricted items list is stored in `ReplicatedStorage.Libraries.RestrictedItems`.
-	This can be used to define a list of items which are not purchasable using the included Purchase and BulkPurchase RemoteEvents.
+	This can be used to define a list of items which are not purchasable using the included Purchase RemoteEvent.
 
 	This is useful if you are implementing a UGC giveaway mechanic or something similar and don't want exploiters to be able to arbitrarily prompt and claim the item through the included RemoteEvents.
 
@@ -125,8 +125,8 @@
 
 	### ServerScriptService.Checkout
 
-	This script handles individual and bulk purchasing functionality. The list of restricted items is checked
-	here, allowing certain items to not be purchasable through the included Remotevents.
+	This script handles individual purchasing functionality. The list of restricted items is checked
+	here, allowing certain items to not be purchasable through the included RemoteEvent.
 
 	### ServerScriptService.Mannequins
 

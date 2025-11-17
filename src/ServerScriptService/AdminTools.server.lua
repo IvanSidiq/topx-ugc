@@ -236,7 +236,6 @@ local function handleAdminCommand(player, message)
 		print("Suspicious players flagged:", suspiciousCount)
 		print("Security monitoring: ACTIVE")
 		print("Purchase verification: ENABLED") 
-		print("Bulk purchase validation: ENABLED")
 		print("Price report validation: ENABLED")
 		print("=======================")
 		

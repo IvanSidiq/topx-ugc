@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local TestMode = require(script.Parent.Utility.TestMode)
 local TestStore = require(script.Parent.Utility.TestStore)
+local PurchaseTracking = require(script.Parent.PurchaseTracking)
 
 local PointsDataStore = DataStoreService:GetDataStore("UGCPlayerPoints")
 local RobuxLeaderboard = DataStoreService:GetOrderedDataStore("RobuxSpentLeaderboard")
@@ -38,6 +39,8 @@ local recentClientPricesByPlayer = {}
 
 -- Track players currently claiming items to prevent exploits
 local playersCurrentlyClaiming = {}
+local claimAttempts = {} -- Track claim attempts per player for rate limiting
+local lastClaimTime = {} -- Track last claim time per player
 
 -- Helper function to safely get leaderstats without infinite yield
 local function getLeaderstats(player, timeoutSeconds)
@@ -56,8 +59,21 @@ local function getLeaderstats(player, timeoutSeconds)
 end
 
 -- Configuration for free item claims
-local FREE_ASSET_ID = 85890247763956 -- Set this to match your client
+local FREE_ASSET_IDS = {
+	85890247763956, -- Original reward asset
+	75903645746351, -- Additional reward asset
+}
 local CLAIM_COST = 500 -- Points required to claim
+
+-- Helper function to check if asset ID is a valid free reward
+local function isValidFreeAsset(assetId)
+	for _, validId in ipairs(FREE_ASSET_IDS) do
+		if assetId == validId then
+			return true
+		end
+	end
+	return false
+end
 
 -- Bundle price mapping for third-party bundles that we can't get price info for
 local KNOWN_BUNDLE_PRICES = {
@@ -68,20 +84,18 @@ local KNOWN_BUNDLE_PRICES = {
 	-- Add more bundle IDs and their prices here as needed
 }
 
--- Security Configuration
+-- Security Configuration (Balanced for UX + Security)
 local MAX_POINTS = 9999 -- Maximum allowed points per player
 local MAX_SINGLE_PURCHASE_POINTS = 2000 -- Maximum points from a single purchase
-local PURCHASE_COOLDOWN = 2 -- Seconds between purchases for same player
+local PURCHASE_COOLDOWN = 0 -- DISABLED - Removed to allow rapid legitimate purchases
+local CLAIM_COOLDOWN = 3 -- Seconds between claim attempts (reduced for better UX)
 local SUSPICIOUS_POINTS_THRESHOLD = 5000 -- Alert threshold for rapid point gains
+local MAX_CLAIMS_PER_HOUR = 20 -- Maximum claim attempts per hour (increased for better UX)
 
 -- Anti-exploit tracking
 local lastPurchaseTime = {} -- Track last purchase time per player
 local recentPointGains = {} -- Track recent point gains for anomaly detection
-local suspiciousPlayers = {} -- Track players with suspicious activity
-
--- Bulk purchase security tracking
-local recentRobuxSpending = {} -- [player] = {totalSpent, timestamp, purchases = {}}
-local bulkPurchaseHistory = {} -- [player] = {count, resetTime}
+-- Removed suspiciousPlayers - too aggressive for legitimate users
 
 -- Security Functions
 local function logSuspiciousActivity(player, reason, details)
@@ -89,12 +103,8 @@ local function logSuspiciousActivity(player, reason, details)
 		player.Name, player.UserId, reason, details or "")
 	warn(message)
 	
-	-- Mark player as suspicious
-	suspiciousPlayers[player.UserId] = {
-		reason = reason,
-		details = details,
-		timestamp = os.time()
-	}
+	-- Don't mark players as suspicious for legitimate activity
+	-- Only log for monitoring purposes
 end
 
 local function validatePointsAmount(currentPoints, newPoints, source)
@@ -126,141 +136,30 @@ local function isPlayerOnCooldown(player)
 end
 
 local function trackPointGain(player, pointsGained)
-	local userId = player.UserId
-	recentPointGains[userId] = recentPointGains[userId] or {}
-	
-	-- Add current gain with timestamp
-	table.insert(recentPointGains[userId], {
-		points = pointsGained,
-		timestamp = os.clock()
-	})
-	
-	-- Clean old entries (older than 5 minutes)
-	local cutoff = os.clock() - 300
-	local filteredEntries = {}
-	for _, entry in ipairs(recentPointGains[userId]) do
-		if entry.timestamp > cutoff then
-			table.insert(filteredEntries, entry)
-		end
-	end
-	recentPointGains[userId] = filteredEntries
-	
-	-- Check for suspicious rapid gains
-	local totalRecentGains = 0
-	for _, entry in ipairs(recentPointGains[userId]) do
-		totalRecentGains += entry.points
-	end
-	
-	if totalRecentGains > SUSPICIOUS_POINTS_THRESHOLD then
-		logSuspiciousActivity(player, "Rapid point accumulation", 
-			string.format("Gained %d points in last 5 minutes", totalRecentGains))
-	end
+	-- Simplified tracking - just for monitoring, no blocking
+	print(string.format("[POINTS-TRACK] %s gained %d points", player.Name, pointsGained))
 end
 
--- Bulk Purchase Security Functions
-local function trackRobuxSpending(player, robuxAmount, purchaseType)
+-- Rate limiting function for claims
+local function canPlayerClaim(player)
 	local userId = player.UserId
 	local currentTime = os.clock()
 	
-	-- Initialize or get existing spending data
-	if not recentRobuxSpending[player] then
-		recentRobuxSpending[player] = {
-			totalSpent = 0,
-			timestamp = currentTime,
-			purchases = {}
-		}
+	-- Check claim cooldown
+	if lastClaimTime[userId] and (currentTime - lastClaimTime[userId]) < CLAIM_COOLDOWN then
+		return false, string.format("Please wait %.0f seconds before claiming again", CLAIM_COOLDOWN - (currentTime - lastClaimTime[userId]))
 	end
 	
-	local spendingData = recentRobuxSpending[player]
-	
-	-- Clean old purchases (older than 2 minutes)
-	local cutoff = currentTime - 120
-	local filteredPurchases = {}
-	local totalRecent = 0
-	
-	for _, purchase in ipairs(spendingData.purchases) do
-		if purchase.timestamp > cutoff then
-			table.insert(filteredPurchases, purchase)
-			totalRecent += purchase.amount
-		end
+	-- Initialize or reset hourly tracking
+	if not claimAttempts[userId] then
+		claimAttempts[userId] = {count = 0, resetTime = currentTime + 3600}
+	elseif currentTime > claimAttempts[userId].resetTime then
+		claimAttempts[userId] = {count = 0, resetTime = currentTime + 3600}
 	end
 	
-	-- Add new purchase
-	table.insert(filteredPurchases, {
-		amount = robuxAmount,
-		timestamp = currentTime,
-		type = purchaseType
-	})
-	totalRecent += robuxAmount
-	
-	-- Update spending data
-	spendingData.purchases = filteredPurchases
-	spendingData.totalSpent = totalRecent
-	spendingData.timestamp = currentTime
-	
-	print(string.format("[ROBUX-TRACK] %s spent %d robux (%s), recent total: %d", 
-		player.Name, robuxAmount, purchaseType, totalRecent))
-end
-
-local function canMakeBulkPurchase(player)
-	local userId = player.UserId
-	local currentTime = os.clock()
-	
-	-- Initialize history if needed
-	if not bulkPurchaseHistory[player] then
-		bulkPurchaseHistory[player] = {count = 0, resetTime = currentTime + 300}
-	end
-	
-	local history = bulkPurchaseHistory[player]
-	
-	-- Reset counter if time window expired
-	if currentTime > history.resetTime then
-		history.count = 0
-		history.resetTime = currentTime + 300 -- 5 minute window
-	end
-	
-	-- Check if player has exceeded bulk purchase limit
-	if history.count >= 5 then -- Max 5 bulk purchases per 5 minutes
-		return false, "Too many bulk purchases in short time"
-	end
-	
-	return true, nil
-end
-
-local function validateBulkPurchaseAmount(player, reportedRobux)
-	local spendingData = recentRobuxSpending[player]
-	
-	-- Must have recent spending data
-	if not spendingData or not spendingData.purchases then
-		return false, "No recent purchase activity detected"
-	end
-	
-	-- Check if we have recent spending within last 60 seconds
-	local currentTime = os.clock()
-	local recentSpending = 0
-	local hasRecentActivity = false
-	
-	for _, purchase in ipairs(spendingData.purchases) do
-		if (currentTime - purchase.timestamp) <= 60 then
-			recentSpending += purchase.amount
-			hasRecentActivity = true
-		end
-	end
-	
-	if not hasRecentActivity then
-		return false, "No recent purchase activity (within 60 seconds)"
-	end
-	
-	-- Allow some tolerance for timing and regional price differences
-	local minExpected = math.floor(recentSpending * 0.7) -- 70% of tracked spending
-	local maxExpected = math.ceil(recentSpending * 1.3)  -- 130% of tracked spending
-	
-	if reportedRobux < minExpected then
-		return false, string.format("Reported robux (%d) too low vs tracked (%d)", reportedRobux, recentSpending)
-	end
-	
-	if reportedRobux > maxExpected then
-		return false, string.format("Reported robux (%d) too high vs tracked (%d)", reportedRobux, recentSpending)
+	-- Check hourly limit
+	if claimAttempts[userId].count >= MAX_CLAIMS_PER_HOUR then
+		return false, "Too many claim attempts. Please try again later."
 	end
 	
 	return true, nil
@@ -269,9 +168,29 @@ end
 -- Handle claim requests from clients
 claimEvent.OnServerEvent:Connect(function(player, assetId)
 	local success, err = pcall(function()
+		-- SECURITY: Rate limiting check
+		local canClaim, limitError = canPlayerClaim(player)
+		if not canClaim then
+			claimResponseEvent:FireClient(player, false, limitError)
+			logSuspiciousActivity(player, "Claim rate limit exceeded", limitError)
+			return
+		end
+		
+		-- Increment claim attempts
+		claimAttempts[player.UserId].count += 1
+		lastClaimTime[player.UserId] = os.clock()
+		
 		-- Validate input
 		if typeof(assetId) ~= "number" then
 			claimResponseEvent:FireClient(player, false, "Invalid asset ID")
+			logSuspiciousActivity(player, "Invalid claim asset ID", string.format("Asset: %s", tostring(assetId)))
+			return
+		end
+		
+		-- SECURITY: Validate asset ID is within reasonable range
+		if assetId <= 0 or assetId > 999999999999999 then
+			claimResponseEvent:FireClient(player, false, "Invalid asset ID")
+			logSuspiciousActivity(player, "Suspicious claim asset ID", string.format("Asset: %d", assetId))
 			return
 		end
 		
@@ -281,8 +200,8 @@ claimEvent.OnServerEvent:Connect(function(player, assetId)
 			return
 		end
 		
-		-- Validate it's the correct free asset
-		if assetId ~= FREE_ASSET_ID then
+		-- Validate it's a valid free asset
+		if not isValidFreeAsset(assetId) then
 			claimResponseEvent:FireClient(player, false, "Invalid item for claiming")
 			return
 		end
@@ -328,6 +247,9 @@ claimEvent.OnServerEvent:Connect(function(player, assetId)
 			startTime = os.clock()
 		}
 		
+		-- SECURITY: Track this as an expected purchase using module
+		PurchaseTracking.registerAssetPurchase(player, assetId, "claim")
+		
 		-- Prompt the purchase
 		MarketplaceService:PromptPurchase(player, assetId)
 		claimResponseEvent:FireClient(player, true, "Purchase prompted")
@@ -340,30 +262,60 @@ claimEvent.OnServerEvent:Connect(function(player, assetId)
 	end
 end)
 
--- Track expected individual purchases from Roblox events
-local expectedPurchases = {} -- [player][assetId] = {timestamp = number}
+-- SECURITY: Use shared purchase tracking to prevent exploit spoofing
+-- Reference the tables from PurchaseTracking module
+local expectedPurchases = PurchaseTracking.expectedPurchases
+local expectedBundlePurchases = PurchaseTracking.expectedBundlePurchases
+local expectedGamePassPurchases = PurchaseTracking.expectedGamePassPurchases
 
 reportEvent.OnServerEvent:Connect(function(player, assetId, clientPrice, infoTypeName)
+	print(string.format("[PRICE-REPORT-DEBUG] Received report from %s: asset %d, price %d, type %s", 
+		player.Name, assetId, clientPrice, infoTypeName or "unknown"))
+	
+	-- SECURITY: Comprehensive input validation
 	if typeof(assetId) ~= "number" or typeof(clientPrice) ~= "number" then
+		print("[PRICE-REPORT-DEBUG] Invalid types - rejecting")
+		logSuspiciousActivity(player, "Invalid price report types", 
+			string.format("AssetID: %s, Price: %s", typeof(assetId), typeof(clientPrice)))
 		return
 	end
+	
+	-- SECURITY: Validate reasonable ranges
+	if assetId <= 0 or assetId > 999999999999999 then
+		logSuspiciousActivity(player, "Suspicious asset ID in price report", string.format("Asset: %d", assetId))
+		return
+	end
+	
 	if clientPrice < 0 then
+		print("[PRICE-REPORT-DEBUG] Negative price - rejecting")
+		logSuspiciousActivity(player, "Negative price reported", string.format("Price: %d", clientPrice))
+		return
+	end
+	
+	-- SECURITY: Validate price is within reasonable limits (max 10k Robux per item)
+	if clientPrice > 10000 then
+		logSuspiciousActivity(player, "Excessive price reported", string.format("Price: %d for asset: %d", clientPrice, assetId))
 		return
 	end
 	
 	-- SECURITY: Only accept price reports if we have a recent purchase event for this asset
 	local playerPurchases = expectedPurchases[player]
 	if not playerPurchases or not playerPurchases[assetId] then
-		logSuspiciousActivity(player, "Price report without purchase", 
-			string.format("Asset %d price report without MarketplaceService event", assetId))
+		-- Log but don't block - might be timing issue
+		print(string.format("[PRICE-REPORT] No expected purchase for asset %d from %s (type: %s)", assetId, player.Name, infoTypeName or "unknown"))
+		if playerPurchases then
+			print("[PRICE-REPORT] Available expected purchases:")
+			for expectedAssetId, data in pairs(playerPurchases) do
+				print(string.format("  - Asset %d (age: %.1fs)", expectedAssetId, os.clock() - data.timestamp))
+			end
+		end
 		return
 	end
 	
-	-- Check if the purchase event is recent (within 30 seconds)
+	-- Check if the purchase event is recent (within 60 seconds - more lenient)
 	local purchaseTime = playerPurchases[assetId].timestamp
-	if (os.clock() - purchaseTime) > 30 then
-		logSuspiciousActivity(player, "Stale price report", 
-			string.format("Price report %.1f seconds after purchase", os.clock() - purchaseTime))
+	if (os.clock() - purchaseTime) > 60 then
+		print(string.format("[PRICE-REPORT] Stale price report from %s (%.1f seconds old)", player.Name, os.clock() - purchaseTime))
 		expectedPurchases[player][assetId] = nil
 		return
 	end
@@ -375,12 +327,7 @@ reportEvent.OnServerEvent:Connect(function(player, assetId, clientPrice, infoTyp
 		return
 	end
 	
-	-- Rate limit price reports
-	local playerData = recentClientPricesByPlayer[player] or {}
-	local lastReport = playerData.lastReportTime or 0
-	if (os.clock() - lastReport) < 0.5 then -- 500ms cooldown between reports
-		return
-	end
+	-- REMOVED: Price report rate limiting - was rejecting legitimate rapid purchases
 	
 	recentClientPricesByPlayer[player] = recentClientPricesByPlayer[player] or {}
 	recentClientPricesByPlayer[player][assetId] = {
@@ -388,16 +335,19 @@ reportEvent.OnServerEvent:Connect(function(player, assetId, clientPrice, infoTyp
 		t = os.clock(),
 		infoTypeName = infoTypeName,
 	}
-	recentClientPricesByPlayer[player].lastReportTime = os.clock()
 	
-	-- Clear the expected purchase since we've processed it
-	if expectedPurchases[player] then
-		expectedPurchases[player][assetId] = nil
-	end
+	print(string.format("[PRICE-REPORT-DEBUG] Accepted price report for asset %d", assetId))
+	
+	-- DON'T clear expected purchase here - let PromptPurchaseFinished handler do it
+	-- This fixes race condition where purchase event fires but expected purchase is already cleared
 end)
 
--- Called when purchase is completed
-local function grantPoints(player, robuxSpent)
+-- Called when purchase is completed - SECURITY: Only called from legitimate MarketplaceService events
+local function grantPoints(player, robuxSpent, purchaseSource)
+	-- SECURITY: Log all point grants with source for audit trail
+	print(string.format("[SECURITY-AUDIT] Point grant request: Player=%s, Robux=%d, Source=%s", 
+		player.Name, robuxSpent or 0, purchaseSource or "unknown"))
+	
 	-- Safely get leaderstats without infinite yield
 	local stats = getLeaderstats(player, 5)
 	if not stats then 
@@ -411,18 +361,15 @@ local function grantPoints(player, robuxSpent)
 		return
 	end
 
-	-- Security checks
-	if isPlayerOnCooldown(player) then
-		logSuspiciousActivity(player, "Purchase cooldown violation", 
-			string.format("Attempted purchase while on cooldown"))
+	-- SECURITY: Validate purchase source is legitimate
+	local validSources = {"PromptPurchaseFinished", "PromptBundlePurchaseFinished", "PromptGamePassPurchaseFinished"}
+	if not purchaseSource or not table.find(validSources, purchaseSource) then
+		logSuspiciousActivity(player, "Invalid purchase source for point grant", 
+			string.format("Source: %s, Robux: %d", tostring(purchaseSource), robuxSpent))
 		return
 	end
-	
-	-- Check if player is already flagged as suspicious
-	if suspiciousPlayers[player.UserId] then
-		warn(string.format("Blocking points for suspicious player %s (%d)", player.Name, player.UserId))
-		return
-	end
+
+	-- REMOVED: Purchase cooldown check - was blocking legitimate rapid purchases
 
 	-- Give points with validation
 	local points = stats:FindFirstChild("Points")
@@ -482,19 +429,44 @@ end
 -- Detect purchase
 MarketplaceService.PromptPurchaseFinished:Connect(function(player, assetId, isPurchased)
 	local success, err = pcall(function()
-		-- Track this purchase for price report validation
+		-- SECURITY FIX: Validate this purchase was server-initiated to prevent exploit spoofing
+		-- This protects against exploiters using SignalPromptPurchaseFinished
 		if isPurchased then
-			expectedPurchases[player] = expectedPurchases[player] or {}
-			expectedPurchases[player][assetId] = {
-				timestamp = os.clock()
-			}
+			-- LAYER 1: Validate server-initiated purchase
+			local playerExpected = expectedPurchases[player]
+			if not playerExpected or not playerExpected[assetId] then
+				logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Unsolicited purchase event", 
+					string.format("Asset %d was not prompted by server", assetId))
+				return -- REJECT spoofed purchase
+			end
 			
-			-- Clean up old expected purchases (older than 60 seconds)
-			task.delay(60, function()
-				if expectedPurchases[player] and expectedPurchases[player][assetId] then
-					expectedPurchases[player][assetId] = nil
-				end
-			end)
+			-- Validate purchase is recent (within 120 seconds of prompt)
+			local purchaseAge = os.clock() - playerExpected[assetId].timestamp
+			if purchaseAge > 120 then
+				logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Stale purchase event", 
+					string.format("Asset %d purchase is %.1f seconds old", assetId, purchaseAge))
+				expectedPurchases[player][assetId] = nil
+				return -- REJECT stale purchase
+			end
+			
+			-- LAYER 2: Verify actual ownership (defense-in-depth)
+			local ownsAsset = PurchaseTracking.verifyOwnership(player, assetId, "asset")
+			if not ownsAsset then
+				logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Purchase event fired but player doesn't own asset", 
+					string.format("Asset %d ownership verification failed", assetId))
+				expectedPurchases[player][assetId] = nil
+				return -- REJECT - player doesn't actually own the item
+			end
+			
+			print(string.format("[SECURITY-VERIFIED] Player %s successfully purchased and owns asset %d", player.Name, assetId))
+			
+			-- Valid purchase - will be cleaned up at the end of processing
+		else
+			-- Purchase cancelled/failed - clean up expected entry
+			if expectedPurchases[player] then
+				expectedPurchases[player][assetId] = nil
+			end
+			return
 		end
 		
 		-- Check if this is a claim purchase
@@ -552,35 +524,40 @@ MarketplaceService.PromptPurchaseFinished:Connect(function(player, assetId, isPu
 			local defaultPrice = productInfo.PriceInRobux
 			local robuxSpent = defaultPrice
 
-			-- Prefer client-reported regionalized price if available and sane (within 30%-100% default)
-			clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][assetId]
-			if clientEntry and (os.clock() - clientEntry.t) <= 15 then
-				local reported = clientEntry.price
-				if typeof(reported) == "number" and reported > 0 then
-					if typeof(defaultPrice) == "number" and defaultPrice and defaultPrice > 0 then
-						local minAllowed = math.floor(defaultPrice * 0.3)
-						local maxAllowed = defaultPrice
-						if reported >= minAllowed and reported <= maxAllowed then
-							robuxSpent = reported
-						end
+		-- Prefer client-reported regionalized price if available and sane (within 30%-100% default)
+		clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][assetId]
+		if clientEntry and (os.clock() - clientEntry.t) <= 30 then -- Increased time window to 30 seconds
+			local reported = clientEntry.price
+			if typeof(reported) == "number" and reported > 0 then
+				if typeof(defaultPrice) == "number" and defaultPrice and defaultPrice > 0 then
+					local minAllowed = math.floor(defaultPrice * 0.3)
+					local maxAllowed = defaultPrice
+					if reported >= minAllowed and reported <= maxAllowed then
+						robuxSpent = reported
 					else
-						-- SECURITY PATCH: Never trust client when we can't validate
-						logSuspiciousActivity(player, "Client price rejected - no default price", 
-							string.format("Reported: %d, Asset: %d", reported, assetId))
-						robuxSpent = 0  -- Give 0 points when we can't validate
+						-- Use default price if client price is outside range (don't reject, just use default)
+						print(string.format("[PRICE] Client price %d outside range [%d-%d], using default %d", 
+							reported, minAllowed, maxAllowed, defaultPrice))
 					end
+				else
+					-- If no default price, trust client (regional pricing or limited item)
+					robuxSpent = reported
+					print(string.format("[PRICE] No default price for asset %d, using client-reported: %d", assetId, reported))
 				end
 			end
+		end
 
-			-- Clear cached entry after use
-			if recentClientPricesByPlayer[player] then
-				recentClientPricesByPlayer[player][assetId] = nil
-			end
+		-- Clear cached entry after use
+		if recentClientPricesByPlayer[player] then
+			recentClientPricesByPlayer[player][assetId] = nil
+		end
+		
+		-- SECURITY: Clear expected purchase after processing
+		if expectedPurchases[player] then
+			expectedPurchases[player][assetId] = nil
+		end
 
-			-- Track this spending for bulk purchase validation
-			trackRobuxSpending(player, robuxSpent, "Asset")
-			
-			grantPoints(player, robuxSpent)
+		grantPoints(player, robuxSpent, "PromptPurchaseFinished")
 			-- count purchase for badge milestones (persisted)
 			local stats = player:FindFirstChild("leaderstats")
 			if stats then
@@ -615,13 +592,42 @@ MarketplaceService.PromptPurchaseFinished:Connect(function(player, assetId, isPu
 	end
 end)
 
--- Note: PromptBulkPurchaseFinished can only be used in LocalScripts (client-side)
--- The client handles bulk purchase detection and reports to server via bulkPurchaseReportEvent
-
 -- Handle Bundle purchases
 if MarketplaceService.PromptBundlePurchaseFinished then
 	MarketplaceService.PromptBundlePurchaseFinished:Connect(function(player, bundleId, wasPurchased)
+		-- LAYER 1: Validate this bundle purchase was server-initiated
+		local playerExpected = expectedBundlePurchases[player]
+		if not playerExpected or not playerExpected[bundleId] then
+			if wasPurchased then
+				logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Unsolicited bundle purchase", 
+					string.format("Bundle %d was not prompted by server", bundleId))
+			end
+			return -- REJECT spoofed purchase
+		end
+		
+		-- Validate purchase is recent (within 120 seconds)
+		local purchaseAge = os.clock() - playerExpected[bundleId].timestamp
+		if purchaseAge > 120 then
+			logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Stale bundle purchase", 
+				string.format("Bundle %d purchase is %.1f seconds old", bundleId, purchaseAge))
+			expectedBundlePurchases[player][bundleId] = nil
+			return -- REJECT stale purchase
+		end
+		
+		-- Clear expected purchase
+		expectedBundlePurchases[player][bundleId] = nil
+		
 		if not wasPurchased then return end
+		
+		-- LAYER 2: Verify actual ownership (defense-in-depth)
+		local ownsBundle = PurchaseTracking.verifyOwnership(player, bundleId, "bundle")
+		if not ownsBundle then
+			logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Bundle purchase event fired but player doesn't own bundle items", 
+				string.format("Bundle %d ownership verification failed", bundleId))
+			return -- REJECT - player doesn't actually own bundle items
+		end
+		
+		print(string.format("[SECURITY-VERIFIED] Player %s successfully purchased and owns bundle %d", player.Name, bundleId))
 
 		-- Wait briefly for the client to report
 		local clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][bundleId]
@@ -688,35 +694,35 @@ if MarketplaceService.PromptBundlePurchaseFinished then
 			warn("Bundle " .. bundleId .. " has no price info, granting minimal points (5 robux equivalent)")
 		end
 		
-		local robuxSpent = defaultPrice
-		-- Re-check client entry for final price validation
-		clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][bundleId]
-		if clientEntry and (os.clock() - clientEntry.t) <= 15 then
-			local reported = clientEntry.price
-			if typeof(reported) == "number" and reported > 0 then
-				if typeof(defaultPrice) == "number" and defaultPrice and defaultPrice > 0 then
-					local minAllowed = math.floor(defaultPrice * 0.3)
-					local maxAllowed = defaultPrice
-					if reported >= minAllowed and reported <= maxAllowed then
-						robuxSpent = reported
-					end
+	local robuxSpent = defaultPrice
+	-- Re-check client entry for final price validation
+	clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][bundleId]
+	if clientEntry and (os.clock() - clientEntry.t) <= 30 then -- Increased time window to 30 seconds
+		local reported = clientEntry.price
+		if typeof(reported) == "number" and reported > 0 then
+			if typeof(defaultPrice) == "number" and defaultPrice and defaultPrice > 0 then
+				local minAllowed = math.floor(defaultPrice * 0.3)
+				local maxAllowed = defaultPrice
+				if reported >= minAllowed and reported <= maxAllowed then
+					robuxSpent = reported
 				else
-					-- SECURITY PATCH: Never trust client when we can't validate Bundle prices
-					logSuspiciousActivity(player, "Bundle client price rejected - no default price", 
-						string.format("Reported: %d, Bundle: %d", reported, bundleId))
-					robuxSpent = 0  -- Give 0 points when we can't validate
+					-- Use default price if client price is outside range (don't reject, just use default)
+					print(string.format("[PRICE] Bundle client price %d outside range [%d-%d], using default %d", 
+						reported, minAllowed, maxAllowed, defaultPrice))
 				end
+			else
+				-- If no default price, trust client (regional pricing)
+				robuxSpent = reported
+				print(string.format("[PRICE] No default price for bundle %d, using client-reported: %d", bundleId, reported))
 			end
 		end
+	end
 
 		if recentClientPricesByPlayer[player] then
 			recentClientPricesByPlayer[player][bundleId] = nil
 		end
 
-		-- Track this spending for bulk purchase validation
-		trackRobuxSpending(player, robuxSpent, "Bundle")
-
-		grantPoints(player, robuxSpent)
+		grantPoints(player, robuxSpent, "PromptBundlePurchaseFinished")
 		local stats = player:FindFirstChild("leaderstats")
 		if stats then
 			local purchases = stats:FindFirstChild("Purchases")
@@ -742,7 +748,39 @@ end
 -- Mirror logic for Game Pass purchases
 if MarketplaceService.PromptGamePassPurchaseFinished then
 	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
+		-- LAYER 1: Validate this gamepass purchase was server-initiated
+		local playerExpected = expectedGamePassPurchases[player]
+		if not playerExpected or not playerExpected[gamePassId] then
+			if wasPurchased then
+				logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Unsolicited gamepass purchase", 
+					string.format("GamePass %d was not prompted by server", gamePassId))
+			end
+			return -- REJECT spoofed purchase
+		end
+		
+		-- Validate purchase is recent (within 120 seconds)
+		local purchaseAge = os.clock() - playerExpected[gamePassId].timestamp
+		if purchaseAge > 120 then
+			logSuspiciousActivity(player, "EXPLOIT ATTEMPT: Stale gamepass purchase", 
+				string.format("GamePass %d purchase is %.1f seconds old", gamePassId, purchaseAge))
+			expectedGamePassPurchases[player][gamePassId] = nil
+			return -- REJECT stale purchase
+		end
+		
+		-- Clear expected purchase
+		expectedGamePassPurchases[player][gamePassId] = nil
+		
 		if not wasPurchased then return end
+		
+		-- LAYER 2: Verify actual ownership (defense-in-depth)
+		local ownsGamePass = PurchaseTracking.verifyOwnership(player, gamePassId, "gamepass")
+		if not ownsGamePass then
+			logSuspiciousActivity(player, "EXPLOIT ATTEMPT: GamePass purchase event fired but player doesn't own gamepass", 
+				string.format("GamePass %d ownership verification failed", gamePassId))
+			return -- REJECT - player doesn't actually own the gamepass
+		end
+		
+		print(string.format("[SECURITY-VERIFIED] Player %s successfully purchased and owns gamepass %d", player.Name, gamePassId))
 
 		-- Wait briefly for the client to report
 		local clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][gamePassId]
@@ -766,35 +804,35 @@ if MarketplaceService.PromptGamePassPurchaseFinished then
 		end
 		if not success or not productInfo then return end
 
-		local defaultPrice = productInfo.PriceInRobux
-		local robuxSpent = defaultPrice
-		clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][gamePassId]
-		if clientEntry and (os.clock() - clientEntry.t) <= 15 then
-			local reported = clientEntry.price
-			if typeof(reported) == "number" and reported > 0 then
-				if typeof(defaultPrice) == "number" and defaultPrice and defaultPrice > 0 then
-					local minAllowed = math.floor(defaultPrice * 0.3)
-					local maxAllowed = defaultPrice
-					if reported >= minAllowed and reported <= maxAllowed then
-						robuxSpent = reported
-					end
+	local defaultPrice = productInfo.PriceInRobux
+	local robuxSpent = defaultPrice
+	clientEntry = recentClientPricesByPlayer[player] and recentClientPricesByPlayer[player][gamePassId]
+	if clientEntry and (os.clock() - clientEntry.t) <= 30 then -- Increased time window to 30 seconds
+		local reported = clientEntry.price
+		if typeof(reported) == "number" and reported > 0 then
+			if typeof(defaultPrice) == "number" and defaultPrice and defaultPrice > 0 then
+				local minAllowed = math.floor(defaultPrice * 0.3)
+				local maxAllowed = defaultPrice
+				if reported >= minAllowed and reported <= maxAllowed then
+					robuxSpent = reported
 				else
-					-- SECURITY PATCH: Never trust client when we can't validate GamePass prices
-					logSuspiciousActivity(player, "GamePass client price rejected - no default price", 
-						string.format("Reported: %d, GamePass: %d", reported, gamePassId))
-					robuxSpent = 0  -- Give 0 points when we can't validate
+					-- Use default price if client price is outside range (don't reject, just use default)
+					print(string.format("[PRICE] GamePass client price %d outside range [%d-%d], using default %d", 
+						reported, minAllowed, maxAllowed, defaultPrice))
 				end
+			else
+				-- If no default price, trust client (regional pricing)
+				robuxSpent = reported
+				print(string.format("[PRICE] No default price for gamepass %d, using client-reported: %d", gamePassId, reported))
 			end
 		end
+	end
 
 		if recentClientPricesByPlayer[player] then
 			recentClientPricesByPlayer[player][gamePassId] = nil
 		end
 
-		-- Track this spending for bulk purchase validation
-		trackRobuxSpending(player, robuxSpent, "GamePass")
-
-		grantPoints(player, robuxSpent)
+		grantPoints(player, robuxSpent, "PromptGamePassPurchaseFinished")
 		local stats = player:FindFirstChild("leaderstats")
 		if stats then
 			local purchases = stats:FindFirstChild("Purchases")
@@ -816,115 +854,6 @@ if MarketplaceService.PromptGamePassPurchaseFinished then
 		end
 	end)
 end
-
--- Create RemoteEvent for bulk purchase reporting
-local bulkPurchaseReportEvent = ReplicatedStorage:FindFirstChild("UGC_ReportBulkPurchase")
-if not bulkPurchaseReportEvent then
-	bulkPurchaseReportEvent = Instance.new("RemoteEvent")
-	bulkPurchaseReportEvent.Name = "UGC_ReportBulkPurchase"
-	bulkPurchaseReportEvent.Parent = ReplicatedStorage
-end
-
--- Note: expectedBulkPurchases removed since PromptBulkPurchaseFinished can only be used client-side
-
--- Handle bulk purchase reports from client
-bulkPurchaseReportEvent.OnServerEvent:Connect(function(player, purchaseData)
-	print("[BULK] Received bulk purchase report from", player.Name)
-	
-	-- Note: Since PromptBulkPurchaseFinished can only be used client-side,
-	-- we rely on client-side MarketplaceService events which are legitimate Roblox events
-	-- and implement basic server-side validation instead of cross-referencing with server events
-	
-	-- Basic security validation
-	if not purchaseData or typeof(purchaseData) ~= "table" then
-		logSuspiciousActivity(player, "Invalid bulk purchase data", 
-			string.format("Type: %s", typeof(purchaseData)))
-		return
-	end
-	
-	-- Check if player is flagged as suspicious
-	if suspiciousPlayers[player.UserId] then
-		warn(string.format("Blocking bulk purchase for suspicious player %s (%d)", player.Name, player.UserId))
-		return
-	end
-	
-	-- Extract data from the purchase report
-	local items = purchaseData.Items
-	local totalRobuxSpent = purchaseData.RobuxSpent or 0
-	local totalItems = 0
-	
-	if items and typeof(items) == "table" then
-		totalItems = #items
-	end
-	
-	-- Basic validation on the reported values
-	if totalRobuxSpent < 0 or totalRobuxSpent > MAX_SINGLE_PURCHASE_POINTS then
-		logSuspiciousActivity(player, "Suspicious bulk purchase robux amount", 
-			string.format("Reported: %d robux", totalRobuxSpent))
-		return
-	end
-	
-	if totalItems <= 0 or totalItems > 50 then -- Reasonable limit on bulk items
-		logSuspiciousActivity(player, "Suspicious bulk purchase item count", 
-			string.format("Reported: %d items", totalItems))
-		return
-	end
-	
-	-- SECURITY: Check bulk purchase rate limiting
-	local canPurchase, bulkError = canMakeBulkPurchase(player)
-	if not canPurchase then
-		logSuspiciousActivity(player, "Bulk purchase rate limit exceeded", bulkError)
-		return
-	end
-	
-	-- SECURITY: Validate against tracked Robux spending
-	local isValidAmount, validationError = validateBulkPurchaseAmount(player, totalRobuxSpent)
-	if not isValidAmount then
-		logSuspiciousActivity(player, "Bulk purchase validation failed", validationError)
-		return
-	end
-	
-	-- Rate limiting - prevent rapid bulk purchase reports
-	if isPlayerOnCooldown(player) then
-		logSuspiciousActivity(player, "Bulk purchase cooldown violation", 
-			"Attempted bulk purchase while on cooldown")
-		return
-	end
-	
-	-- Increment bulk purchase counter
-	bulkPurchaseHistory[player].count += 1
-	
-	print("[BULK] Processing", totalItems, "items with robux:", totalRobuxSpent)
-	
-	if totalRobuxSpent > 0 then
-		grantPoints(player, totalRobuxSpent)
-		
-		-- Update purchase count for bulk purchase
-		local stats = player:FindFirstChild("leaderstats")
-		if stats then
-			local purchases = stats:FindFirstChild("Purchases")
-			if purchases and purchases:IsA("IntValue") then
-				if TestMode then
-					purchases.Value += totalItems
-				else
-					local dataKey = "Purchases_" .. player.UserId
-					local ok, newTotal = pcall(function()
-						return PurchasesCountStore:IncrementAsync(dataKey, totalItems)
-					end)
-					if ok and typeof(newTotal) == "number" then
-						purchases.Value = newTotal
-					else
-						purchases.Value += totalItems
-					end
-				end
-			end
-		end
-		
-		print("[BULK] Successfully processed bulk purchase for", player.Name, "- Robux:", totalRobuxSpent, "Items:", totalItems)
-	else
-		warn("[BULK] No robux spent reported for bulk purchase from", player.Name)
-	end
-end)
 
 -- Load leaderstats on join
 game.Players.PlayerAdded:Connect(function(player)
@@ -994,11 +923,35 @@ game.Players.PlayerAdded:Connect(function(player)
 	p.Name = "Points"
 	p.Value = points
 	p.Parent = folder
+	
+	-- SECURITY: Monitor for external point manipulation
+	p.Changed:Connect(function(newValue)
+		-- Only allow points to change through our grantPoints function
+		-- by checking if the change is within expected parameters
+		if newValue > MAX_POINTS then
+			p.Value = MAX_POINTS
+			logSuspiciousActivity(player, "Points exceeded maximum", 
+				string.format("Attempted to set points to %d", newValue))
+		elseif newValue < 0 then
+			p.Value = 0
+			logSuspiciousActivity(player, "Negative points detected", 
+				string.format("Attempted to set points to %d", newValue))
+		end
+	end)
 
 	local r = Instance.new("IntValue")
 	r.Name = "RobuxSpent"
 	r.Value = robuxSpent
 	r.Parent = folder
+	
+	-- SECURITY: Monitor RobuxSpent for manipulation
+	r.Changed:Connect(function(newValue)
+		if newValue < robuxSpent then
+			r.Value = robuxSpent
+			logSuspiciousActivity(player, "RobuxSpent decreased", 
+				string.format("Attempted to decrease RobuxSpent from %d to %d", robuxSpent, newValue))
+		end
+	end)
 
 	local c = Instance.new("IntValue")
 	c.Name = "Purchases"
@@ -1016,11 +969,11 @@ game.Players.PlayerRemoving:Connect(function(player)
 	-- Clear anti-exploit tracking
 	lastPurchaseTime[player.UserId] = nil
 	recentPointGains[player.UserId] = nil
-	-- Clear purchase tracking
-	expectedPurchases[player] = nil
-	-- Clear bulk purchase security tracking
-	recentRobuxSpending[player] = nil
-	bulkPurchaseHistory[player] = nil
+	-- SECURITY: Clear purchase tracking using module
+	PurchaseTracking.cleanupPlayer(player)
+	-- Clear claim tracking (SECURITY)
+	claimAttempts[player.UserId] = nil
+	lastClaimTime[player.UserId] = nil
 	if TestMode then return end
 
 	local leaderstats = player:FindFirstChild("leaderstats")
